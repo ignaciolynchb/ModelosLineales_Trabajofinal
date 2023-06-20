@@ -6,6 +6,8 @@ library(tidyverse)
 library(mixlm)
 library(skedastic) #Para hacer el test de homoscedasticidad
 library(gridExtra)
+library(fastDummies)
+
 ########### Carga de datos ########### 
 datos <- read_excel('datos_edv.xlsx')
 continente <- read_excel('Pais-Continente.xlsx')
@@ -17,25 +19,25 @@ levels(datos$status)
 datos$continente <- as.factor(datos$continente)
 levels(datos$continente)
 
-#Scatterplot de todos vs life expectancy
-scatterplot_continente <- function(x, y) {
-  ggplot(datos, aes_string(x = x, y = y)) +
+#scatter_plot de todos vs life expectancy
+scatter_plot_continente <- function(x, y, df) {
+  ggplot(df, aes_string(x = x, y = y)) +
     geom_point(aes(col = continente))
 }
-scatterplot <- function(x, y) {
+scatter_plot <- function(x, y) {
   ggplot(datos, aes_string(x = x, y = y)) +
     geom_point()
 }
 # crea una matriz de gráficos de 4 filas y 3 columnas
 grid.arrange(
-  scatterplot_continente("adult_mortality", "life_expectancy"),
-  scatterplot_continente("infant_mortality", "life_expectancy"),
-  scatterplot_continente("bmi", "life_expectancy"),
-  scatterplot_continente("total_expenditure", "life_expectancy"),
-  scatterplot_continente("GDP", "life_expectancy"),
-  scatterplot_continente("Population", "life_expectancy"),
-  scatterplot_continente("HDI", "life_expectancy"),
-  scatterplot_continente("Schooling", "life_expectancy"),
+  scatter_plot_continente("adult_mortality", "life_expectancy", datos),
+  scatter_plot_continente("infant_mortality", "life_expectancy", datos),
+  scatter_plot_continente("bmi", "life_expectancy", datos),
+  scatter_plot_continente("total_expenditure", "life_expectancy", datos),
+  scatter_plot_continente("GDP", "life_expectancy", datos),
+  scatter_plot_continente("Population", "life_expectancy", datos),
+  scatter_plot_continente("HDI", "life_expectancy", datos),
+  scatter_plot_continente("Schooling", "life_expectancy", datos),
   nrow = 4, ncol = 2
 )
 
@@ -63,10 +65,17 @@ datos <- datos |> select(!c(country,HDI,Population))
 datos <- datos |> filter(!is.na(GDP))
 datos <- datos |> filter(!is.na(Schooling))
 
+#Creo las variables dummy.
+#datos <- dummy_cols(
+#                  datos,  
+#                  select_columns = c("status", "continente"), 
+#                  remove_selected_columns = TRUE,
+#                  remove_most_frequent_dummy = TRUE
+#          )
 
 ########### Modelado ########### 
-
-modelo0 <- lm(life_expectancy ~ ., datos)
+datos <- datos |> mutate(GDP = log(GDP))
+modelo0 <- lm(life_expectancy ~ . + continente*status, datos)
 
 #Modelo con todas las combinaciones, se podria ver de usar con LASSO.
 #modelo0 <- lm(life_expectancy ~ .^2, datos)
@@ -130,17 +139,53 @@ boxplot(modelo_final$residuals,
 datos$r_i <- rstudent(modelo_final) #Residuos estandarizados
 
 grid.arrange(
-  scatterplot("adult_mortality", "r_i"),
-  scatterplot("total_expenditure", "r_i"),
-  scatterplot("GDP", "r_i"),
-  scatterplot("Schooling", "r_i"),
+  scatter_plot_continente("adult_mortality", "r_i", datos),
+  scatter_plot_continente("total_expenditure", "r_i", datos),
+  scatter_plot_continente("GDP", "r_i", datos),
+  scatter_plot_continente("Schooling", "r_i", datos),
   nrow = 2, ncol = 2
 )
-
 
 #Test de breush pagan para testear homoscedasticidad
 breusch_pagan(modelo_final)
 
+
+#### SEGUNDA ITERACION 
+
+#Hago transformaciones
+datos_v2 <- datos |> select(!r_i) |> mutate(GDP = log(GDP))
+
+scatterplot(datos_v2$life_expectancy, datos_v2$GDP)
+
+modelo_final = lm(formula = life_expectancy ~ ., data = datos_v2[,-c(8,5,4)]) 
+
+datos_v2$r_i <- rstudent(modelo_final) #Residuos estandarizados
+
+
+grid.arrange(
+  scatter_plot_continente("adult_mortality", "r_i", datos_v2),
+  scatter_plot_continente("total_expenditure", "r_i", datos_v2),
+  scatter_plot_continente("GDP", "r_i", datos_v2),
+  scatter_plot_continente("Schooling", "r_i", datos_v2),
+  nrow = 2, ncol = 2
+)
+
+#Test de breush pagan para testear homoscedasticidad
+breusch_pagan(modelo_final)
+
+
+datos_v3 <- datos |> select(!r_i) 
+mod0 = lm(formula = life_expectancy ~ . + continente:., datos_v3)
+modelo_final = backward(mod0, alpha = 0.05)
+#datos_v3$r_i <- rstudent(modelo_final) #Residuos estandarizados
+breusch_pagan(modelo_final)
+grid.arrange(
+  scatter_plot_continente("adult_mortality", "r_i", datos_v3),
+  scatter_plot_continente("total_expenditure", "r_i", datos_v3),
+  scatter_plot_continente("GDP", "r_i", datos_v3),
+  scatter_plot_continente("Schooling", "r_i", datos_v3),
+  nrow = 2, ncol = 2
+)
 
 ggplot(datos, aes(x = edad_meses, y = t_i)) + 
   geom_point() +
@@ -157,6 +202,8 @@ plot(eje,
      ylab = 'Densidad'
      )
 lines(density(modelo_final$residuals), col = 'blue')
+
+
 
 #Residuos: QQ Plot
 ggplot(modelo_final, aes(sample = rstudent(modelo_final))) +
@@ -177,8 +224,8 @@ ks.test(modelo_final$residuals, 'pnorm')
 
 #Viendo cuales son atipicas
 atipicas <- c()
-for(i in 1:nrow(datos)){
-  if((1 - pt(abs(datos[i,]$r_i), nrow(datos) - 8 - 1)) < 0.01/2){
+for(i in 1:nrow(datos_v3)){
+  if((1 - pt(abs(datos[i,]$r_i), nrow(datos_v3) - 8 - 1)) < 0.01/2){
     atipicas <- c(atipicas, i)
   }
 }
@@ -211,6 +258,5 @@ ggplot(df, aes(x = i, y = D_i)) +
   geom_abline(slope = 0, intercept = 4/nrow(datos), col = 2, linetype = 'dashed')
 
 #Saco las atipicas ya que son influyentes
-datos <- datos[-c(45, 55), ]
 modelo_final = lm(formula = life_expectancy ~ ., data = datos[,-c(8,5,4)]) 
-breusch_pagan(modelo_final)
+breusch_pagan(modBackward)
