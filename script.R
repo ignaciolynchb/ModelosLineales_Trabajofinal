@@ -48,6 +48,8 @@ grid.arrange(
   scatter_plot_continente("infant_mortality", "life_expectancy", datos),
   scatter_plot_continente("bmi", "life_expectancy", datos),
   scatter_plot_continente("total_expenditure", "life_expectancy", datos),
+  scatter_plot_continente("HDI", "life_expectancy", datos),
+  scatter_plot_continente("Population", "life_expectancy", datos),
   scatter_plot_continente("GDP", "life_expectancy", datos),
   scatter_plot_continente("Schooling", "life_expectancy", datos),
   nrow = 4, ncol = 2
