@@ -3,39 +3,45 @@ library(corrplot)
 library(ggplot2)
 library(readxl)
 library(tidyverse)
-library(mixlm)
+library(mixlm) #Para hacer backward, forward y stepwise
 library(skedastic) #Para hacer el test de homoscedasticidad
 library(gridExtra)
-library(fastDummies)
+library(car) #Para hacer el vif
 
 ########### Carga de datos ########### 
-datos <- read_excel('datos_edv.xlsx')
-continente <- read_excel('Pais-Continente.xlsx')
-datos <- left_join(datos, continente, by = join_by(country == pais))
+datos <- read_excel('datos_edv.xlsx') #Leemos los datos
+continente <- read_excel('Pais-Continente.xlsx') #Leemos los continentes
+datos <- left_join(datos, continente, by = join_by(country == pais)) #Juntamos datos y continentes
 
-###########  Transformaciones ########### 
-datos$status <- as.factor(datos$status)
+datos$status <- as.factor(datos$status) #Pasamos el status a factor
 levels(datos$status)
-datos$continente <- as.factor(datos$continente)
+datos$continente <- as.factor(datos$continente) #Pasamos el continente a factor
 levels(datos$continente)
 
+################################ 
+
+
+########### Descripción y visualizacion ########### 
+nrow(datos) #filas
+ncol(datos) #columnas
+summary(datos) #estadisticas basicas
+
+##Estudiamos cantidad de NA
+apply(X = 100*(is.na(datos)/nrow(datos)), MARGIN = 2, FUN = sum) #proporcion de NA's
+nrow(na.omit(datos)) #Registros completos, sin NA en ninguna variable
+##Conclusiones: 22% de los paises no tienen el dato de población, 15% el de GDP. Poblacion no importa porque la sacamos
 
 scatter_plot_continente <- function(x, y, df) {
   ggplot(df, aes_string(x = x, y = y)) +
-  geom_point(aes(col = continente)) 
+    geom_point(aes(col = continente)) 
 }
-#scatter_plot de todos vs life expectancy
-#con nombre de paises
-#scatter_plot_continente <- function(x, y, df) {
- # ggplot(df, aes_string(x = x, y = y)) +
-  #  geom_point(aes(col = continente)) +
-   # geom_text(aes(label = country), nudge_x = 0.5, nudge_y = 0.2)
-#}
+
 scatter_plot <- function(x, y) {
   ggplot(datos, aes_string(x = x, y = y)) +
     geom_point()
 }
 
+### Visualizacion
 # crea una matriz de gráficos de 4 filas y 3 columnas
 grid.arrange(
   scatter_plot_continente("adult_mortality", "life_expectancy", datos),
@@ -43,12 +49,14 @@ grid.arrange(
   scatter_plot_continente("bmi", "life_expectancy", datos),
   scatter_plot_continente("total_expenditure", "life_expectancy", datos),
   scatter_plot_continente("GDP", "life_expectancy", datos),
-  scatter_plot_continente("Population", "life_expectancy", datos),
-  scatter_plot_continente("HDI", "life_expectancy", datos),
   scatter_plot_continente("Schooling", "life_expectancy", datos),
   nrow = 4, ncol = 2
 )
+#Conclusion: Hay datos raros en adult_mortality, paises con muy baja mortalidad adulta tienen baja
+# expectativa de vida. Comprobando con otras fuentes llegamos a la conclusion que estos paises con baja mortalidad
+#Estaban mal medidos (Estarian muertes cada 100 en vez de muertes cada mil). Comprobamos con datos de world bank
 
+#Selecciono la patita que estaba colgando y le multiplico por 10 la expectativa de vida
 datos <- datos |> 
   mutate(adult_mortality = ifelse(adult_mortality < 50 & life_expectancy < 70, adult_mortality*10, adult_mortality))
 
@@ -56,58 +64,60 @@ datos <- datos |>
   mutate(adult_mortality = ifelse(adult_mortality < 25, adult_mortality*10, adult_mortality))
 
 
-
-########### Descripción ########### 
-nrow(datos) #filas
-ncol(datos) #columnas
-summary(datos) #estadisticas basicas
-apply(X = 100*(is.na(datos)/nrow(datos)), MARGIN = 2, FUN = sum) #proporcion de NA's
-  #22% de los paises no tienen el dato de población, 15% el de GDP
-nrow(na.omit(datos)) #Registros completos, sin NA en ninguna variable
-
 #Correlación
 corr <- data.frame(cor(na.omit(datos)[,(3:11)])) 
 corr_matrix <- cor(as.matrix(na.omit(datos)[,(3:11)]))
 corrplot(corr_matrix)
 #Baja correlacion con population (variable con mayor proporción de NA's)
 #Alta correlacion con HDI (razonable por la formula de cálculo: https://psicologiaymente.com/cultura/indice-desarrollo-humano)
-  #Se excluye por potenciales problemas
-  #Hay alguna correlacion alta entre los regresores -> evaluar
+#Alta correlacion con mortalidad adulta arreglada.
+#Se excluye por potenciales problemas
+#Hay alguna correlacion alta entre los regresores -> evaluar
 
+
+#Por los motivos expuestoas sacamos poblacion y HDI
 datos <- datos |> select(!c(country,HDI,Population))
 
-#De momento borramos los NA de GDP y Schooling (Ver que hacer despues)
+#Borramos los NA de GDP y Schooling/
 datos <- datos |> filter(!is.na(GDP))
 datos <- datos |> filter(!is.na(Schooling))
 
+datos <- datos |> mutate(GDP = log(GDP))
+datos <- datos |> mutate(infant_mortality = log(1.5 + infant_mortality))
+
 
 ########### Modelado ########### 
-datos <- datos |> mutate(GDP = log(GDP))
-modelo0 <- lm(life_expectancy ~ ., datos)
 
-#Modelo con todas las combinaciones, se podria ver de usar con LASSO.
-#modelo0 <- lm(life_expectancy ~ .^2, datos)
+#Seleccionamos el modelo con las tecnicas vistas en el curso: stepwise, bacjward y forward.
+#Hacemos estas tecnicas con las funciones del paquete mixlm (lo hace con pruebas de hipotesis)
+
+modelo0 <- lm(life_expectancy ~ ., datos)
 
 #Buscando el modelo stepwise
 modStepwise <- stepWise(modelo0, alpha.enter = 0.05, alpha.remove=0.06)
 #Buscando el modelo backward
-modBackward <- backward(modelo0, alpha = 0.1)
+modBackward <- backward(modelo0, alpha = 0.05)
 #Buscando el modelo forward
 modForward <- forward(modelo0, alpha = 0.05)
 
-modBackward$coefficients
 
 
+#Los tres métodos coinciden
 
 
 ########### Diagnostico ###########
 modelo_final = modBackward
 
+modelo_alternativo = lm(life_expectancy ~ 
+                    adult_mortality +
+                    infant_mortality + 
+                    continente + 
+                    Schooling, 
+                  data = datos)
+
 #VIF para testear linealidad
-vif(modBackward)
-
-
-
+vif(modelo_final)
+#Conclusion, como todos los GVIF dicen < 5 
 
 #Esperanza de vida vs Valores ajustados
 plot(na.omit(datos[,-c(8,5,4)])$life_expectancy, 
@@ -143,7 +153,7 @@ grid.arrange(
 )
 
 #Test de breush pagan para testear homoscedasticidad
-breusch_pagan(modelo_final)
+breusch_pagan(modelo_alternativo)
 
 ##Normailidad
 
@@ -156,8 +166,6 @@ plot(eje,
      ylab = 'Densidad'
      )
 lines(density(modelo_final$residuals), col = 'blue')
-
-
 
 #Residuos: QQ Plot
 ggplot(modelo_final, aes(sample = rstudent(modelo_final))) +
@@ -216,10 +224,8 @@ ggplot(df, aes(x = i, y = D_i)) +
 datos_sin_influyentes <- datos[-c(8,13),]
 
 modelo_final = lm(life_expectancy ~ 
-                    log(adult_mortality) +
-                    GDP + 
+                    adult_mortality +
+                    infant_mortality +
                     continente + 
-                    total_expenditure + 
-                    Schooling +
-                    status, 
+                    Schooling,
                   data = datos_sin_influyentes)
