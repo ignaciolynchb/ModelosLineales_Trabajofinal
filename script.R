@@ -75,7 +75,7 @@ datos <- datos |> filter(!is.na(Schooling))
 
 ########### Modelado ########### 
 datos <- datos |> mutate(GDP = log(GDP))
-modelo0 <- lm(life_expectancy ~ . + continente*status, datos)
+modelo0 <- lm(life_expectancy ~ ., datos)
 
 #Modelo con todas las combinaciones, se podria ver de usar con LASSO.
 #modelo0 <- lm(life_expectancy ~ .^2, datos)
@@ -86,6 +86,8 @@ modStepwise <- stepWise(modelo0, alpha.enter = 0.05, alpha.remove=0.06)
 modBackward <- backward(modelo0, alpha = 0.05)
 #Buscando el modelo forward
 modForward <- forward(modelo0, alpha = 0.05)
+
+modBackward$coefficients
 
 # Hacemos a mano la selección del modelo.
 modelo1 = lm(formula = life_expectancy ~ ., data = datos) 
@@ -110,7 +112,14 @@ summary(modelo4) #Resumen del modelo
 
 
 ########### Diagnostico ###########
-modelo_final = modelo4
+modelo_final = lm(life_expectancy ~ 
+                    log(adult_mortality) +
+                    log(GDP) + 
+                    continente + 
+                    total_expenditure + 
+                    Schooling +
+                    status, 
+                data = datos)
 
 
 #Esperanza de vida vs Valores ajustados
@@ -136,7 +145,7 @@ boxplot(modelo_final$residuals,
         main = "Residuos: Boxplot")
 
 #Residuos vs variable explicativa
-datos$r_i <- rstudent(modelo_final) #Residuos estandarizados
+r_i <- rstudent(modelo_final) #Residuos estandarizados
 
 grid.arrange(
   scatter_plot_continente("adult_mortality", "r_i", datos),
@@ -149,49 +158,7 @@ grid.arrange(
 #Test de breush pagan para testear homoscedasticidad
 breusch_pagan(modelo_final)
 
-
-#### SEGUNDA ITERACION 
-
-#Hago transformaciones
-datos_v2 <- datos |> select(!r_i) |> mutate(GDP = log(GDP))
-
-scatterplot(datos_v2$life_expectancy, datos_v2$GDP)
-
-modelo_final = lm(formula = life_expectancy ~ ., data = datos_v2[,-c(8,5,4)]) 
-
-datos_v2$r_i <- rstudent(modelo_final) #Residuos estandarizados
-
-
-grid.arrange(
-  scatter_plot_continente("adult_mortality", "r_i", datos_v2),
-  scatter_plot_continente("total_expenditure", "r_i", datos_v2),
-  scatter_plot_continente("GDP", "r_i", datos_v2),
-  scatter_plot_continente("Schooling", "r_i", datos_v2),
-  nrow = 2, ncol = 2
-)
-
-#Test de breush pagan para testear homoscedasticidad
-breusch_pagan(modelo_final)
-
-
-datos_v3 <- datos |> select(!r_i) 
-mod0 = lm(formula = life_expectancy ~ . + continente:., datos_v3)
-modelo_final = backward(mod0, alpha = 0.05)
-#datos_v3$r_i <- rstudent(modelo_final) #Residuos estandarizados
-breusch_pagan(modelo_final)
-grid.arrange(
-  scatter_plot_continente("adult_mortality", "r_i", datos_v3),
-  scatter_plot_continente("total_expenditure", "r_i", datos_v3),
-  scatter_plot_continente("GDP", "r_i", datos_v3),
-  scatter_plot_continente("Schooling", "r_i", datos_v3),
-  nrow = 2, ncol = 2
-)
-
-ggplot(datos, aes(x = edad_meses, y = t_i)) + 
-  geom_point() +
-  xlab('Edad (meses)') +
-  ylab('Residuos') +
-  geom_abline(slope = 0, intercept = 0)
+##Normailidad
 
 #Residuos: Densidad
 eje <- seq(-4,4,0.01)
@@ -224,8 +191,8 @@ ks.test(modelo_final$residuals, 'pnorm')
 
 #Viendo cuales son atipicas
 atipicas <- c()
-for(i in 1:nrow(datos_v3)){
-  if((1 - pt(abs(datos[i,]$r_i), nrow(datos_v3) - 8 - 1)) < 0.01/2){
+for(i in 1:nrow(datos)){
+  if((1 - pt(abs(r_i[i]), nrow(datos) - 9 - 1)) < 0.01/2){
     atipicas <- c(atipicas, i)
   }
 }
@@ -247,7 +214,7 @@ ggplot(df, aes(x = i, y = h_i)) +
   geom_segment(aes(x = i, xend = i, y = 0, yend = h_i)) +
   xlab('') +
   ylab(expression(h[i])) +
-  geom_abline(slope = 0, intercept = 2*8/nrow(datos), col = 2, linetype = 'dashed')
+  geom_abline(slope = 0, intercept = 2*9/nrow(datos), col = 2, linetype = 'dashed')
 
 # Distancia de Cook
 ggplot(df, aes(x = i, y = D_i)) +
@@ -257,6 +224,4 @@ ggplot(df, aes(x = i, y = D_i)) +
   ylab(expression(D[i])) +
   geom_abline(slope = 0, intercept = 4/nrow(datos), col = 2, linetype = 'dashed')
 
-#Saco las atipicas ya que son influyentes
-modelo_final = lm(formula = life_expectancy ~ ., data = datos[,-c(8,5,4)]) 
-breusch_pagan(modBackward)
+
