@@ -19,15 +19,23 @@ levels(datos$status)
 datos$continente <- as.factor(datos$continente)
 levels(datos$continente)
 
-#scatter_plot de todos vs life expectancy
+
 scatter_plot_continente <- function(x, y, df) {
   ggplot(df, aes_string(x = x, y = y)) +
-    geom_point(aes(col = continente))
+  geom_point(aes(col = continente)) 
 }
+#scatter_plot de todos vs life expectancy
+#con nombre de paises
+#scatter_plot_continente <- function(x, y, df) {
+ # ggplot(df, aes_string(x = x, y = y)) +
+  #  geom_point(aes(col = continente)) +
+   # geom_text(aes(label = country), nudge_x = 0.5, nudge_y = 0.2)
+#}
 scatter_plot <- function(x, y) {
   ggplot(datos, aes_string(x = x, y = y)) +
     geom_point()
 }
+
 # crea una matriz de gráficos de 4 filas y 3 columnas
 grid.arrange(
   scatter_plot_continente("adult_mortality", "life_expectancy", datos),
@@ -40,6 +48,13 @@ grid.arrange(
   scatter_plot_continente("Schooling", "life_expectancy", datos),
   nrow = 4, ncol = 2
 )
+
+datos <- datos |> 
+  mutate(adult_mortality = ifelse(adult_mortality < 50 & life_expectancy < 70, adult_mortality*10, adult_mortality))
+
+datos <- datos |> 
+  mutate(adult_mortality = ifelse(adult_mortality < 25, adult_mortality*10, adult_mortality))
+
 
 
 ########### Descripción ########### 
@@ -65,13 +80,6 @@ datos <- datos |> select(!c(country,HDI,Population))
 datos <- datos |> filter(!is.na(GDP))
 datos <- datos |> filter(!is.na(Schooling))
 
-#Creo las variables dummy.
-#datos <- dummy_cols(
-#                  datos,  
-#                  select_columns = c("status", "continente"), 
-#                  remove_selected_columns = TRUE,
-#                  remove_most_frequent_dummy = TRUE
-#          )
 
 ########### Modelado ########### 
 datos <- datos |> mutate(GDP = log(GDP))
@@ -83,43 +91,22 @@ modelo0 <- lm(life_expectancy ~ ., datos)
 #Buscando el modelo stepwise
 modStepwise <- stepWise(modelo0, alpha.enter = 0.05, alpha.remove=0.06)
 #Buscando el modelo backward
-modBackward <- backward(modelo0, alpha = 0.05)
+modBackward <- backward(modelo0, alpha = 0.1)
 #Buscando el modelo forward
 modForward <- forward(modelo0, alpha = 0.05)
 
 modBackward$coefficients
 
-# Hacemos a mano la selección del modelo.
-modelo1 = lm(formula = life_expectancy ~ ., data = datos) 
-summary(modelo1) #Resumen del modelo
 
-
-#Comenzamos quitando del modelo a las variables menos significativas individualmente
-
-#1. Population
-modelo2 = lm(formula = life_expectancy ~ ., data = datos[,-8]) 
-summary(modelo2) #Resumen del modelo
-
-#2. BMI
-modelo3 = lm(formula = life_expectancy ~ ., data = datos[,-c(8,5)]) 
-summary(modelo3) #Resumen del modelo
-
-#3. infant_mortality
-modelo4 = lm(formula = life_expectancy ~ ., data = datos[,-c(8,5,4)]) 
-summary(modelo4) #Resumen del modelo
-
-#Va aumentando el R2 ajustado
 
 
 ########### Diagnostico ###########
-modelo_final = lm(life_expectancy ~ 
-                    log(adult_mortality) +
-                    log(GDP) + 
-                    continente + 
-                    total_expenditure + 
-                    Schooling +
-                    status, 
-                data = datos)
+modelo_final = modBackward
+
+#VIF para testear linealidad
+vif(modBackward)
+
+
 
 
 #Esperanza de vida vs Valores ajustados
@@ -207,6 +194,8 @@ df <- data.frame(i = 1:nrow(datos),
                  h_i = h_i,
                  D_i = D_i)
 
+influyentes_leverage <- which(if_else(h_i > 2*9/nrow(datos), 1, 0) == 1)
+influyentes_cook <- which(if_else(D_i > 4/nrow(datos), 1, 0) == 1)
 
 # leverage
 ggplot(df, aes(x = i, y = h_i)) +
@@ -224,4 +213,13 @@ ggplot(df, aes(x = i, y = D_i)) +
   ylab(expression(D[i])) +
   geom_abline(slope = 0, intercept = 4/nrow(datos), col = 2, linetype = 'dashed')
 
+datos_sin_influyentes <- datos[-c(8,13),]
 
+modelo_final = lm(life_expectancy ~ 
+                    log(adult_mortality) +
+                    GDP + 
+                    continente + 
+                    total_expenditure + 
+                    Schooling +
+                    status, 
+                  data = datos_sin_influyentes)
