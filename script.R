@@ -181,11 +181,12 @@ ks.test(modelo_final$residuals, 'pnorm')
 #Atipicos
 atipicas <- c()
 for(i in 1:nrow(datos)){
-  if((1 - pt(abs(r_i[i]), nrow(datos) - 9 - 1)) < 0.01/2){
+  if((1 - pt(abs(r_i[i]), nrow(datos) - length(coefficients(modelo_final))-1)) < 0.01/2){
     atipicas <- c(atipicas, i)
   }
 }
 atipicas
+row.names(datos)[atipicas] 
 
 #Medidas de influencia
 h_i <- influence(modelo_final)$hat
@@ -193,20 +194,20 @@ D_i <- cooks.distance(modelo_final)
 df <- data.frame(i = 1:nrow(datos),
                  h_i = h_i,
                  D_i = D_i)
-influyentes_leverage <- which(if_else(h_i > 2*(length(coefficients(modelo_final))-1)/nrow(datos), 1, 0) == 1)
+influyentes_leverage <- which(if_else(h_i > 2*(length(coefficients(modelo_final)))/nrow(datos), 1, 0) == 1)
 row.names(datos)[influyentes_leverage] #Paises influyentes
 influyentes_cook <- which(if_else(D_i > 4/nrow(datos), 1, 0) == 1)
 row.names(datos)[influyentes_cook] #Paises influyentes
 
+grid.arrange(
 #Leverage
 ggplot(df, aes(x = i, y = h_i)) +
   geom_point() +
   geom_segment(aes(x = i, xend = i, y = 0, yend = h_i)) +
   xlab('') +
   ylab(expression(h[i])) +
-  geom_abline(slope = 0, intercept = 2*(length(coefficients(modelo_final))-1)/nrow(datos), col = 2, linetype = 'dashed') +
-  theme_bw()
-
+  geom_abline(slope = 0, intercept = 2*(length(coefficients(modelo_final)))/nrow(datos), col = 2, linetype = 'dashed') +
+  theme_bw(),
 #Distancia de Cook
 ggplot(df, aes(x = i, y = D_i)) +
   geom_point() +
@@ -215,7 +216,7 @@ ggplot(df, aes(x = i, y = D_i)) +
   ylab(expression(D[i])) +
   geom_abline(slope = 0, intercept = 4/nrow(datos), col = 2, linetype = 'dashed') +
   theme_bw()
-
+)
 #Excluimos los influyentes de Cook
 datos_sin_influyentes <- datos[-c(influyentes_cook),]
 modelo_final_sin_influyentes = lm(life_expectancy ~ 
